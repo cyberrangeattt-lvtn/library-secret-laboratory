@@ -61,21 +61,52 @@
       group: chong
       mode: '0755'
 
+#- name: Copy file with owner and permissions
+#  copy:
+#      src: webmin_1.890_all.deb
+#      dest: /tmp/webmin_1.890_all.deb
+#      owner: root
+#      group: root
+#      mode: '0644'
+#
+#- name: Install webmin deb package
+#  apt:
+#      deb: /tmp/webmin_1.890_all.deb
+#      update_cache: yes
+
+- name: Install dependencies required by Webmin
+  apt:
+    name:
+      - perl
+      - libnet-ssleay-perl
+      - libauthen-pam-perl
+      - libio-pty-perl
+      - apt-show-versions
+      - libio-stringy-perl
+    state: present
+    update_cache: yes
+
 - name: Copy file with owner and permissions
   copy:
-      src: webmin_1.890_all.deb
-      dest: /tmp/webmin_1.890_all.deb
-      owner: root
-      group: root
-      mode: '0644'
+    src: webmin_1.890_all.deb
+    dest: /tmp/webmin_1.890_all.deb
+    owner: root
+    group: root
+    mode: '0644'
 
-- name: Update python-is-python3 for webmin 
-  apt:
-      name: python-is-python3
-      state: present
-      update_cache: yes
+- name: Check if Webmin is already installed
+  command: dpkg-query -W -f='${Status}' webmin
+  register: webmin_check
+  failed_when: false
+  changed_when: false
 
-- name: Install webmin deb package
-  apt:
-      deb: /tmp/webmin_1.890_all.deb
-      update_cache: yes
+- name: Install webmin deb package (bypass unsatisfiable 'python' dependency)
+  command: dpkg -i --force-depends /tmp/webmin_1.890_all.deb
+  when: "'install ok installed' not in webmin_check.stdout"
+  register: webmin_install_result
+
+- name: Verify webmin status after install
+  command: dpkg -s webmin
+  register: webmin_status
+  changed_when: false
+  when: webmin_install_result is changed
