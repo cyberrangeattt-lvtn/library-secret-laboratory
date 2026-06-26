@@ -74,6 +74,7 @@
 #      deb: /tmp/webmin_1.890_all.deb
 #      update_cache: yes
 
+
 - name: Install dependencies required by Webmin
   apt:
     name:
@@ -89,6 +90,10 @@
     state: present
     update_cache: yes
 
+# ---------------------------------------------------------------------
+# Tạo dummy package "python" để thỏa dependency cứng của Webmin .deb
+# ---------------------------------------------------------------------
+
 - name: Create equivs control file for dummy python package
   copy:
     dest: /tmp/dummy-python-control
@@ -97,7 +102,7 @@
       Priority: optional
       Standards-Version: 3.9.2
       Package: python
-      Version: 999:2.7.99
+      Version: 2.7.99
       Maintainer: root <root@localhost>
       Architecture: all
       Description: Dummy package to satisfy legacy Webmin dependency on python
@@ -106,11 +111,22 @@
   command: equivs-build /tmp/dummy-python-control
   args:
     chdir: /tmp
-    creates: /tmp/python_999:2.7.99_all.deb
+    creates: /tmp/python_2.7.99_all.deb
+
+- name: Find built dummy python deb
+  find:
+    paths: /tmp
+    patterns: "python_*.deb"
+  register: dummy_deb
 
 - name: Install dummy python package
   apt:
-    deb: "/tmp/python_999:2.7.99_all.deb"
+    deb: "{{ dummy_deb.files[0].path }}"
+  when: dummy_deb.matched > 0
+
+# ---------------------------------------------------------------------
+# Cài đặt Webmin 1.890 từ file .deb có sẵn trong repo
+# ---------------------------------------------------------------------
 
 - name: Copy webmin deb package with owner and permissions
   copy:
@@ -126,13 +142,18 @@
   failed_when: false
   changed_when: false
 
-- name: Install webmin deb package (dependency now genuinely satisfied)
+- name: Install webmin deb package (dependency on python now genuinely satisfied)
   apt:
     deb: /tmp/webmin_1.890_all.deb
   when: "'install ok installed' not in webmin_check.stdout"
   register: webmin_install_result
 
-- name: Reconfigure any half-installed packages (remediate already-broken hosts)
+# ---------------------------------------------------------------------
+# Remediation: dọn trạng thái broken nếu host đã từng bị cài bằng
+# dpkg -i --force-depends ở lần chạy trước (để lại unmet dependency)
+# ---------------------------------------------------------------------
+
+- name: Reconfigure any half-installed packages
   command: dpkg --configure -a
   changed_when: false
   failed_when: false
@@ -148,4 +169,3 @@
   register: webmin_status
   changed_when: false
   when: webmin_install_result is changed
-
