@@ -81,12 +81,38 @@
       - libnet-ssleay-perl
       - libauthen-pam-perl
       - libio-pty-perl
-      - apt-show-versions
       - libio-stringy-perl
+      - apt-show-versions
+      - openssl
+      - libpam-runtime
+      - equivs
     state: present
     update_cache: yes
 
-- name: Copy file with owner and permissions
+- name: Create equivs control file for dummy python package
+  copy:
+    dest: /tmp/dummy-python-control
+    content: |
+      Section: misc
+      Priority: optional
+      Standards-Version: 3.9.2
+      Package: python
+      Version: 999:2.7.99
+      Maintainer: root <root@localhost>
+      Architecture: all
+      Description: Dummy package to satisfy legacy Webmin dependency on python
+
+- name: Build dummy python deb package
+  command: equivs-build /tmp/dummy-python-control
+  args:
+    chdir: /tmp
+    creates: /tmp/python_999:2.7.99_all.deb
+
+- name: Install dummy python package
+  apt:
+    deb: "/tmp/python_999:2.7.99_all.deb"
+
+- name: Copy webmin deb package with owner and permissions
   copy:
     src: webmin_1.890_all.deb
     dest: /tmp/webmin_1.890_all.deb
@@ -100,13 +126,26 @@
   failed_when: false
   changed_when: false
 
-- name: Install webmin deb package (bypass unsatisfiable 'python' dependency)
-  command: dpkg -i --force-depends /tmp/webmin_1.890_all.deb
+- name: Install webmin deb package (dependency now genuinely satisfied)
+  apt:
+    deb: /tmp/webmin_1.890_all.deb
   when: "'install ok installed' not in webmin_check.stdout"
   register: webmin_install_result
+
+- name: Reconfigure any half-installed packages (remediate already-broken hosts)
+  command: dpkg --configure -a
+  changed_when: false
+  failed_when: false
+
+- name: Fix any remaining broken dependencies system-wide
+  apt:
+    state: fixed
+  register: apt_fixed
+  failed_when: false
 
 - name: Verify webmin status after install
   command: dpkg -s webmin
   register: webmin_status
   changed_when: false
   when: webmin_install_result is changed
+
